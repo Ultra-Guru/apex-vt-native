@@ -7,6 +7,12 @@
 
 namespace apex::vt {
 
+namespace {
+// Mirrors vt_session.cpp's codec cap (R12: cps per mark <= 16) so a
+// save/load round trip never changes what is on screen.
+constexpr size_t kRenderCpsPerMarkMax = 16;
+}  // namespace
+
 // ─── RowExtras ────────────────────────────────────────────────────────────
 
 const std::vector<uint32_t>* RowExtras::find(uint16_t col) const {
@@ -20,6 +26,11 @@ const std::vector<uint32_t>* RowExtras::find(uint16_t col) const {
 void RowExtras::add(uint16_t col, uint32_t cp) {
   for (CombiningMark& m : marks) {
     if (m.col == col) {
+      // Hardening (#395 upstream sync): cap combining marks per cell — the
+      // session codec (R12) only round-trips 16 per mark, so anything beyond
+      // is already lossy; without a cap a Zalgo/binary stream grows one
+      // cell's marks vector unboundedly (native heap + O(n) hot-path scans).
+      if (m.cps.size() >= kRenderCpsPerMarkMax) return;
       m.cps.push_back(cp);
       return;
     }
@@ -181,9 +192,13 @@ const std::vector<uint32_t>* Screen::combiningAt(int r, int c) const {
 
 void Screen::insertChars(int row, int fromCol, int count) {
   if (row < 0 || row >= rows_) return;
-  count = count < 1 ? 1 : count;
   if (fromCol < 0) fromCol = 0;
   if (fromCol >= cols_) return;
+  // Hardening (#395): saturate count into [1, cols_-fromCol]. The old lower
+  // clamp only let a 10-digit CSI param (parseToken passes INT32_MAX) wrap
+  // `fromCol + count` negative → memmove with a ~2GB size → SIGSEGV (ASAN
+  // proven). xterm semantics: insertion never exceeds the row end.
+  count = std::min(std::max(count, 1), cols_ - fromCol);
   int srcStart = fromCol + count;
   if (srcStart < cols_) {
     std::memmove(&cells_[idx(row, srcStart)], &cells_[idx(row, fromCol)],
@@ -200,9 +215,10 @@ void Screen::insertChars(int row, int fromCol, int count) {
 
 void Screen::deleteChars(int row, int fromCol, int count) {
   if (row < 0 || row >= rows_) return;
-  count = count < 1 ? 1 : count;
   if (fromCol < 0) fromCol = 0;
   if (fromCol >= cols_) return;
+  // Hardening (#395): same wrap as insertChars — saturate before pointer math.
+  count = std::min(std::max(count, 1), cols_ - fromCol);
   if (fromCol + count < cols_) {
     std::memmove(&cells_[idx(row, fromCol)], &cells_[idx(row, fromCol + count)],
                  size_t(cols_ - fromCol - count) * sizeof(Cell));
@@ -218,17 +234,25 @@ void Screen::deleteChars(int row, int fromCol, int count) {
 
 void Screen::eraseRow(int row, int fromCol, int toCol, uint16_t styleId) {
   if (row < 0 || row >= rows_) return;
-  int last = std::min(toCol, cols_ - 1);
-  for (int c = std::max(fromCol, 0); c <= last; ++c) {
-    Cell& dst = cells_[idx(row, c)];
-    dst.cp = ' ';
-    dst.style = styleId;  // erase keeps the given (current) style — bg persists
-    dst.flags = 0;
-  }
-  if (RowExtras* ex = extrasAt(row)) {
-    ex->removeRange(fromCol < 0 ? 0 : fromCol, last);
-    ex->invalidateAllLinks();  // erased rows lose their span structure
-    if (ex->empty()) extras_[size_t(row)].reset();
+  int first = std::max(fromCol, 0);
+  if (first >= cols_) return;
+  // Hardening (#395): ECH computes toCol = cursor.col + n - 1 at the dispatch
+  // layer — a 10-digit param wraps it very negative; the old code then read
+  // cells_[idx(row, last)] out of bounds. Clamp to [-1, cols_-1] and skip the
+  // empty range (last < first) entirely.
+  int last = std::min(std::max(toCol, first - 1), cols_ - 1);
+  if (last >= first) {
+    for (int c = first; c <= last; ++c) {
+      Cell& dst = cells_[idx(row, c)];
+      dst.cp = ' ';
+      dst.style = styleId;  // erase keeps the given (current) style — bg persists
+      dst.flags = 0;
+    }
+    if (RowExtras* ex = extrasAt(row)) {
+      ex->removeRange(first, last);
+      ex->invalidateAllLinks();  // erased rows lose their span structure
+      if (ex->empty()) extras_[size_t(row)].reset();
+    }
   }
 }
 

@@ -721,7 +721,10 @@ struct Engine::Impl {
       case 'P': deleteChars(seq.paramOrDefault(0, 1)); break;  // DCH
       case '@': insertChars(seq.paramOrDefault(0, 1)); break;  // ICH
       case 'X': {                                                // ECH
-        int n = seq.paramOrDefault(0, 1);
+        // Hardening (#395): clamp n to the row width before cursor.col + n - 1
+        // — a 10-digit param used to wrap the endpoint very negative (OOB
+        // reads/writes in Screen::eraseRow; ASAN proven).
+        int n = std::min(seq.paramOrDefault(0, 1), cur->cols());
         cur->eraseRow(cursor.row, cursor.col, cursor.col + n - 1, curStyle);
         mutationRows(cursor.row);
         break;
@@ -906,14 +909,17 @@ struct Engine::Impl {
 
   // ICH (§5): insert [n] blank cells at the cursor, rest shifts right.
   void insertChars(int n) {
-    int count = n < 1 ? 1 : n;
+    // Hardening (#395): saturate before Screen-level math (second line of
+    // defense behind Screen::insertChars' own clamp).
+    int count = std::min(std::max(n, 1), cols);
     cur->insertChars(cursor.row, cursor.col, count);
     mutationRows(cursor.row);
   }
 
   // DCH (§5): delete [n] cells at the cursor, rest shifts left.
   void deleteChars(int n) {
-    int count = n < 1 ? 1 : n;
+    // Hardening (#395): same saturation as insertChars.
+    int count = std::min(std::max(n, 1), cols);
     cur->deleteChars(cursor.row, cursor.col, count);
     mutationRows(cursor.row);
   }
