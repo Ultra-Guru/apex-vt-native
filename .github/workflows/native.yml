@@ -49,7 +49,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: host-logs
           path: |
@@ -105,7 +105,7 @@ jobs:
           file "$SO" | grep -E "ELF (32|64)-bit"
 
       - name: Upload .so
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: libvt-native-${{ matrix.abi }}
           path: build-${{ matrix.abi }}/libvt_native.so
