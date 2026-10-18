@@ -47,6 +47,9 @@ void RowExtras::removeCol(uint16_t col) {
 }
 
 void RowExtras::removeRange(int fromCol, int toCol) {
+  // P2: empty range (toCol < fromCol) skips directly — eraseRow's clamped
+  // sentinel endpoint (first-1) can reach here; erase must be a no-op.
+  if (fromCol > toCol) return;
   marks.erase(std::remove_if(marks.begin(), marks.end(), [&](const CombiningMark& m) {
                 return m.col >= fromCol && m.col <= toCol;
               }),
@@ -160,6 +163,14 @@ void Screen::put(int r, int c, const Cell& cell) {
       ex->invalidateLinkAt(uint16_t(c - 1));
     }
   }
+  // P2 (Kotlin parity): a narrow cell overwriting a wide lead must also blank
+  // its trail — otherwise the orphan trail makes the NEXT put at c+1 hit the
+  // branch above and erase the freshly written char (CUP redraw misalignment).
+  if (!(cell.flags & kCellWideLead) && (cells_[idx(r, c)].flags & kCellWideLead) &&
+      c + 1 < cols_ && (cells_[idx(r, c + 1)].flags & kCellWideTrail)) {
+    cells_[idx(r, c + 1)] = blankCell();
+    if (RowExtras* ex = extrasAt(r)) ex->removeCol(uint16_t(c + 1));
+  }
   // A fresh cell has no combining marks — clear any stale mark at this col.
   if (RowExtras* ex = extrasAt(r)) {
     ex->removeCol(uint16_t(c));
@@ -241,18 +252,36 @@ void Screen::eraseRow(int row, int fromCol, int toCol, uint16_t styleId) {
   // cells_[idx(row, last)] out of bounds. Clamp to [-1, cols_-1] and skip the
   // empty range (last < first) entirely.
   int last = std::min(std::max(toCol, first - 1), cols_ - 1);
-  if (last >= first) {
-    for (int c = first; c <= last; ++c) {
-      Cell& dst = cells_[idx(row, c)];
-      dst.cp = ' ';
-      dst.style = styleId;  // erase keeps the given (current) style — bg persists
-      dst.flags = 0;
-    }
-    if (RowExtras* ex = extrasAt(row)) {
-      ex->removeRange(first, last);
-      ex->invalidateAllLinks();  // erased rows lose their span structure
-      if (ex->empty()) extras_[size_t(row)].reset();
-    }
+  // P2 (Kotlin parity): pair-aware erase — if the range boundary splits a wide
+  // pair, erase the out-of-range half too (xterm semantics: erasing either half
+  // erases the whole pair; a surviving half becomes an orphan and misaligns).
+  bool leadSplitBefore = first > 0 && (cells_[idx(row, first)].flags & kCellWideTrail) &&
+                         (cells_[idx(row, first - 1)].flags & kCellWideLead);
+  bool trailSplitAfter = last >= first && last >= 0 && last < cols_ - 1 &&
+                         (cells_[idx(row, last)].flags & kCellWideLead) &&
+                         (cells_[idx(row, last + 1)].flags & kCellWideTrail);
+  for (int c = first; c <= last; ++c) {
+    Cell& dst = cells_[idx(row, c)];
+    dst.cp = ' ';
+    dst.style = styleId;  // erase keeps the given (current) style — bg persists
+    dst.flags = 0;
+  }
+  Cell half{};
+  half.cp = ' ';
+  half.style = styleId;
+  half.flags = 0;
+  if (leadSplitBefore) {
+    cells_[idx(row, first - 1)] = half;
+    if (RowExtras* ex = extrasAt(row)) ex->removeCol(uint16_t(first - 1));
+  }
+  if (trailSplitAfter) {
+    cells_[idx(row, last + 1)] = half;
+    if (RowExtras* ex = extrasAt(row)) ex->removeCol(uint16_t(last + 1));
+  }
+  if (RowExtras* ex = extrasAt(row)) {
+    ex->removeRange(first, last);
+    ex->invalidateAllLinks();  // erased rows lose their span structure
+    if (ex->empty()) extras_[size_t(row)].reset();
   }
 }
 
@@ -386,12 +415,40 @@ void Screen::resize(int newRows, int newCols) {
     std::memcpy(&newCells[size_t(r) * newCols], &cells_[idx(r, 0)], size_t(copyCols) * sizeof(Cell));
     newExtras[size_t(r)] = std::move(extras_[size_t(r)]);
     newWrap[size_t(r)] = wrapFlags_[size_t(r)];
+    // P2 (Kotlin parity): a wide lead landing on the new last column had its
+    // trail truncated — blank it to keep the 2-col overlay stepping in bounds.
+    if (newCells[size_t(r) * newCols + size_t(newCols - 1)].flags & kCellWideLead) {
+      newCells[size_t(r) * newCols + size_t(newCols - 1)] = blankCell();
+      if (RowExtras* ex = newExtras[size_t(r)].get())
+        ex->removeCol(uint16_t(newCols - 1));
+    }
   }
   cells_ = std::move(newCells);
   extras_ = std::move(newExtras);
   wrapFlags_ = std::move(newWrap);
   rows_ = newRows;
   cols_ = newCols;
+}
+
+// P2 (Kotlin parity): row-level wide-pair repair — fixes orphans left by raw
+// shift operations (ICH/DCH/IRM use setCell/memmove with no pairing):
+//  - a trail whose left neighbor is not a wide lead → orphan trail (renderer
+//    skips it → the row loses a column) → blank it;
+//  - a wide lead on the last column (trail pushed off the grid) → blank it.
+// Idempotent: a healthy row only has its flags read, nothing is written.
+void Screen::repairRow(int row) {
+  if (row < 0 || row >= rows_ || cols_ <= 0) return;
+  for (int c = 1; c < cols_; ++c) {
+    if ((cells_[idx(row, c)].flags & kCellWideTrail) &&
+        !(cells_[idx(row, c - 1)].flags & kCellWideLead)) {
+      cells_[idx(row, c)] = blankCell();
+      if (RowExtras* ex = extrasAt(row)) ex->removeCol(uint16_t(c));
+    }
+  }
+  if (cells_[idx(row, cols_ - 1)].flags & kCellWideLead) {
+    cells_[idx(row, cols_ - 1)] = blankCell();
+    if (RowExtras* ex = extrasAt(row)) ex->removeCol(uint16_t(cols_ - 1));
+  }
 }
 
 void Screen::clear() {
