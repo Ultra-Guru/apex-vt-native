@@ -5,6 +5,8 @@
 #include "../src/vt_style.h"
 #include "../src/vt_width.h"
 
+#include "apex/vt/vt_engine.h"
+
 using namespace apex::vt;
 
 namespace {
@@ -184,4 +186,78 @@ MINI_TEST(dec_special_graphics_map) {
   CHECK_EQ(decSpecialGraphics('m'), uint32_t(0x2514));  // └
   CHECK_EQ(decSpecialGraphics('n'), uint32_t(0x253C));  // ┼
   CHECK_EQ(decSpecialGraphics(0), uint32_t(0));         // unmapped
+}
+
+// ═══ Hardening (#395): CSI large-param saturation — regression for the
+// SIGSEGV/OOB class found via ASAN (INT32_MAX ICH/DCH/ECH params). ═══
+
+MINI_TEST(ich_int32_max_param_saturates) {
+  Screen s = makeScreen(1, 10, 0, false);
+  for (int c = 0; c < 10; ++c) s.setCell(0, c, Cell{'x', styles.defaultId(), 0});
+  s.insertChars(0, 4, 2147483647);  // col 4 → must saturate, not wrap
+  CHECK_EQ(s.cell(0, 0).cp, uint32_t('x'));
+  CHECK_EQ(s.cell(0, 3).cp, uint32_t('x'));
+  for (int c = 4; c < 10; ++c) CHECK_EQ(s.cell(0, c).cp, uint32_t(' '));
+}
+
+MINI_TEST(ich_int32_max_param_col0_blanks_row) {
+  Screen s = makeScreen(1, 10, 0, false);
+  for (int c = 0; c < 10; ++c) s.setCell(0, c, Cell{'x', styles.defaultId(), 0});
+  s.insertChars(0, 0, 2147483647);
+  for (int c = 0; c < 10; ++c) CHECK_EQ(s.cell(0, c).cp, uint32_t(' '));
+}
+
+MINI_TEST(dch_int32_max_param_saturates) {
+  Screen s = makeScreen(1, 10, 0, false);
+  for (int c = 0; c < 10; ++c) s.setCell(0, c, Cell{'x', styles.defaultId(), 0});
+  s.deleteChars(0, 2, 2147483647);
+  CHECK_EQ(s.cell(0, 0).cp, uint32_t('x'));
+  CHECK_EQ(s.cell(0, 1).cp, uint32_t('x'));
+  for (int c = 2; c < 10; ++c) CHECK_EQ(s.cell(0, c).cp, uint32_t(' '));
+}
+
+MINI_TEST(erase_row_wrapped_endpoint_is_noop) {
+  Screen s = makeScreen(1, 10, 0, false);
+  for (int c = 0; c < 10; ++c) s.setCell(0, c, Cell{'x', styles.defaultId(), 0});
+  // ECH at dispatch wraps toCol = col + n - 1 → very negative; Screen must
+  // no-op instead of reading cells_[idx(row, last)] out of bounds.
+  s.eraseRow(0, 0, -2147483648, styles.defaultId());
+  for (int c = 0; c < 10; ++c) CHECK_EQ(s.cell(0, c).cp, uint32_t('x'));
+}
+
+MINI_TEST(erase_row_normal_semantics_preserved) {
+  Screen s = makeScreen(1, 10, 0, false);
+  for (int c = 0; c < 10; ++c) s.setCell(0, c, Cell{'x', styles.defaultId(), 0});
+  s.eraseRow(0, 3, 5, styles.defaultId());
+  CHECK_EQ(s.cell(0, 2).cp, uint32_t('x'));
+  for (int c = 3; c <= 5; ++c) CHECK_EQ(s.cell(0, c).cp, uint32_t(' '));
+  CHECK_EQ(s.cell(0, 6).cp, uint32_t('x'));
+}
+
+MINI_TEST(ich_dch_small_params_unchanged) {
+  Screen s = makeScreen(1, 10, 0, false);
+  for (int c = 0; c < 6; ++c) s.setCell(0, c, Cell{uint32_t('a' + c), styles.defaultId(), 0});
+  s.insertChars(0, 0, 3);  // "   abcdef" (cols=10)
+  CHECK_EQ(s.cell(0, 0).cp, uint32_t(' '));
+  CHECK_EQ(s.cell(0, 3).cp, uint32_t('a'));
+  CHECK_EQ(s.cell(0, 8).cp, uint32_t('f'));
+  Screen t = makeScreen(1, 10, 0, false);
+  for (int c = 0; c < 6; ++c) t.setCell(0, c, Cell{uint32_t('a' + c), styles.defaultId(), 0});
+  t.deleteChars(0, 0, 2);  // "cdef" + blanks
+  CHECK_EQ(t.cell(0, 0).cp, uint32_t('c'));
+  CHECK_EQ(t.cell(0, 3).cp, uint32_t('f'));
+  CHECK_EQ(t.cell(0, 4).cp, uint32_t(' '));
+}
+
+MINI_TEST(combining_marks_per_cell_capped_at_16) {
+  // Feed "a" + U+0300 ×64 through the engine — the render cap must hold the
+  // per-cell mark count at 16 (mirrors the session codec R12 contract).
+  Engine e(1, 10, 0);
+  std::string s = "a";
+  for (int i = 0; i < 64; ++i) s += "\xcc\x80";  // U+0300
+  e.feed(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+  FlatSnapshot snap = e.renderSnapshot(0);
+  CHECK(!snap.visible.empty());
+  CHECK_EQ(snap.visible[0].cells[0].cp, uint32_t('a'));
+  CHECK_EQ(snap.visible[0].cells[0].combCount, uint32_t(16));
 }
