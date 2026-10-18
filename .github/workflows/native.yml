@@ -17,7 +17,7 @@ jobs:
     name: Host tests + benchmark + fuzz
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Show toolchain
         run: |
@@ -66,7 +66,7 @@ jobs:
       matrix:
         abi: [arm64-v8a, armeabi-v7a, x86_64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Locate (or install) the Android NDK
         run: |
@@ -119,7 +119,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download all .so artifacts
         uses: actions/download-artifact@v4
