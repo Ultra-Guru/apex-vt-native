@@ -1,0 +1,17 @@
+# ============================================================================
+# Dependabot — C++/NDK 库仓库的依赖新鲜度（github-actions 生态）。
+#
+# 本库核心是 C++17 源码（无第三方运行时依赖 —— 零分配设计），依赖面只有
+# CI 的 actions 版本与 NDK 版本钉子。github-actions 通道保持 workflow 常新；
+# NDK 版本升级属刻意决策（16KB 页对齐等平台契约），不交给 dependabot。
+# ============================================================================
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: "chore(ci)"
