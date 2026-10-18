@@ -261,3 +261,78 @@ MINI_TEST(combining_marks_per_cell_capped_at_16) {
   CHECK_EQ(snap.visible[0].cells[0].cp, uint32_t('a'));
   CHECK_EQ(snap.visible[0].cells[0].combCount, uint32_t(16));
 }
+
+// ═══ P2 wide-pair parity (Kotlin §9 — engine parity backport) ═══
+
+MINI_TEST(put_narrow_over_wide_lead_blanks_trail) {
+  Screen s = makeScreen(2, 6, 0, false);
+  Cell wide{uint32_t(U'中'), styles.defaultId(), kCellWideLead};
+  s.put(0, 1, wide);  // lead @1, trail @2
+  Cell x{'x', styles.defaultId(), 0};
+  s.put(0, 1, x);     // narrow overwrites the LEAD
+  CHECK_EQ(s.cell(0, 1).cp, uint32_t('x'));
+  // orphan trail must be blanked, else the NEXT put at col2 would eat 'x'
+  CHECK_EQ(s.cell(0, 2).cp, uint32_t(' '));
+  CHECK_EQ(s.cell(0, 2).flags, uint16_t(0));
+}
+
+MINI_TEST(repair_row_blanks_orphan_trail) {
+  Screen s = makeScreen(2, 6, 0, false);
+  // raw shift ops (setCell) can strand a trail whose left neighbor is narrow
+  Cell trail{uint32_t(0), styles.defaultId(), kCellWideTrail};
+  s.setCell(0, 2, trail);
+  s.repairRow(0);
+  CHECK_EQ(s.cell(0, 2).cp, uint32_t(' '));
+  CHECK_EQ(s.cell(0, 2).flags, uint16_t(0));
+}
+
+MINI_TEST(repair_row_blanks_lead_stranded_on_last_column) {
+  Screen s = makeScreen(2, 4, 0, false);
+  Cell wide{uint32_t(U'中'), styles.defaultId(), kCellWideLead};
+  s.setCell(0, 3, wide);  // lead on the last column — trail pushed off-grid
+  s.repairRow(0);
+  CHECK_EQ(s.cell(0, 3).cp, uint32_t(' '));
+  CHECK_EQ(s.cell(0, 3).flags, uint16_t(0));
+}
+
+MINI_TEST(repair_row_idempotent_on_healthy_rows) {
+  Screen s = makeScreen(2, 6, 0, false);
+  Cell wide{uint32_t(U'中'), styles.defaultId(), kCellWideLead};
+  s.put(0, 1, wide);  // healthy pair @1-2
+  s.put(0, 3, Cell{uint32_t('a'), styles.defaultId(), 0});
+  s.repairRow(0);
+  s.repairRow(0);  // twice — healthy rows untouched
+  CHECK_EQ(s.cell(0, 1).cp, uint32_t(U'中'));
+  CHECK(s.cell(0, 1).flags & kCellWideLead);
+  CHECK(s.cell(0, 2).flags & kCellWideTrail);
+  CHECK_EQ(s.cell(0, 3).cp, uint32_t('a'));
+}
+
+MINI_TEST(erase_row_split_pair_erases_out_of_range_lead) {
+  Screen s = makeScreen(2, 8, 0, false);
+  Cell wide{uint32_t(U'中'), styles.defaultId(), kCellWideLead};
+  s.put(0, 2, wide);  // pair @2-3
+  s.put(0, 4, Cell{uint32_t('c'), styles.defaultId(), 0});
+  s.eraseRow(0, 3, 3, styles.defaultId());  // erase ONLY the trail half
+  CHECK_EQ(s.cell(0, 2).cp, uint32_t(' '));  // lead erased too (pair-aware)
+  CHECK_EQ(s.cell(0, 2).flags, uint16_t(0));
+  CHECK_EQ(s.cell(0, 4).cp, uint32_t('c'));  // out-of-range narrow untouched
+}
+
+MINI_TEST(erase_row_range_ending_on_lead_extends_into_trail) {
+  Screen s = makeScreen(2, 8, 0, false);
+  Cell wide{uint32_t(U'中'), styles.defaultId(), kCellWideLead};
+  s.put(0, 2, wide);  // pair @2-3
+  s.eraseRow(0, 0, 2, styles.defaultId());  // range ends ON the lead
+  CHECK_EQ(s.cell(0, 3).cp, uint32_t(' '));  // trail erased too
+  CHECK_EQ(s.cell(0, 3).flags, uint16_t(0));
+}
+
+MINI_TEST(resize_blanks_truncated_lead_on_new_last_column) {
+  Screen s = makeScreen(2, 4, 0, false);
+  Cell wide{uint32_t(U'中'), styles.defaultId(), kCellWideLead};
+  s.put(0, 2, wide);  // pair @2-3; resize to 3 cols drops the trail
+  s.resize(2, 3);
+  CHECK_EQ(s.cell(0, 2).cp, uint32_t(' '));  // lead blanked — no half pairs
+  CHECK_EQ(s.cell(0, 2).flags, uint16_t(0));
+}

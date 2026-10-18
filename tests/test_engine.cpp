@@ -821,3 +821,58 @@ MINI_TEST(zero_scrollback_engine) {
   CHECK_EQ(e.scrollbackTotal(), 0);
   CHECK_EQ(e.renderedText().find("4") != std::string::npos, true);
 }
+
+// ═══ P2 wide-pair parity (Kotlin §9 — engine-level golden) ═══
+
+MINI_TEST(dch_on_wide_trail_consumes_the_pair) {
+  // "AB中C": A@0 B@1 中@2-3 C@4. DCH at the TRAIL must eat both halves.
+  Engine e = core("AB\xE4\xB8\xAD" "C", 5, 10);
+  feed(e, "\x1B[4G");  // CUP col 4 → 0-based 3 (trail)
+  feed(e, "\x1B[1P");  // DCH 1
+  e.flush();
+  CHECK_EQ(lines(e.renderedText())[0].substr(0, 3), std::string("ABC"));
+}
+
+MINI_TEST(dch_on_wide_lead_absorbs_the_trail) {
+  // DCH at the LEAD must absorb the trail too (one character = 2 cells).
+  Engine e = core("AB\xE4\xB8\xAD" "C", 5, 10);
+  feed(e, "\x1B[3G");  // CUP col 3 → 0-based 2 (lead)
+  feed(e, "\x1B[1P");  // DCH 1
+  e.flush();
+  CHECK_EQ(lines(e.renderedText())[0].substr(0, 3), std::string("ABC"));
+}
+
+MINI_TEST(ich_on_wide_trail_moves_the_pair_together) {
+  // "中" at cols 2-3 (leading blanks), ICH at the trail → the whole pair
+  // shifts right as one unit; no orphan halves remain.
+  Engine e = core("  \xE4\xB8\xAD", 5, 8);
+  feed(e, "\x1B[4G");  // CUP col 4 → 0-based 3 (trail)
+  feed(e, "\x1B[1@");  // ICH 1
+  e.flush();
+  auto ls = lines(e.renderedText());
+  CHECK_EQ(ls[0].substr(0, 3), std::string("   "));
+  CHECK_EQ(ls[0].substr(3), utf8(U'中'));
+}
+
+MINI_TEST(ech_splitting_a_pair_erases_both_halves) {
+  // "AB中C": ECH at the trail erases the lead too (xterm pair semantics).
+  Engine e = core("AB\xE4\xB8\xAD" "C", 5, 10);
+  feed(e, "\x1B[4G");  // CUP col 4 → 0-based 3 (trail)
+  feed(e, "\x1B[1X");  // ECH 1
+  e.flush();
+  auto ls = lines(e.renderedText());
+  CHECK_EQ(ls[0].substr(0, 2), std::string("AB"));
+  CHECK_EQ(ls[0].substr(2, 2), std::string("  "));  // both halves blanked
+  CHECK_EQ(ls[0].substr(4, 1), std::string("C"));
+}
+
+MINI_TEST(bel_terminates_ignored_string_state) {
+  // SOS (0x98) pushes the parser into kStringIgnore; BEL (0x07) must end it
+  // (parity with OSC's BEL handling) — otherwise every later byte is silently
+  // swallowed and the terminal appears frozen until a literal '\' arrives.
+  const uint8_t seq[] = {0x98, 'j', 'u', 'n', 'k', 0x07, 'o', 'k'};
+  Engine e(5, 10);
+  e.feed(seq, sizeof(seq));
+  e.flush();
+  CHECK_EQ(lines(e.renderedText())[0].substr(0, 2), std::string("ok"));
+}
