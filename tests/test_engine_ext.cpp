@@ -314,6 +314,37 @@ MINI_TEST(osc_color_queries_respond) {
   CHECK(contains(r, "\x1b]4;1;"));
 }
 
+// Host theme colors are echoed in the "?" answers; appendRgbSpec follows the
+// xterm 16-bit/channel convention (8-bit values replicated, 0xFF → 0xFFFF).
+MINI_TEST(osc_color_queries_follow_host_theme) {
+  Engine e(3, 10);
+  e.setThemeColors(0xF5F5F5, 0x1E1E2E, 0xF5F5F5);
+  CHECK(e.themeFg() == 0xF5F5F5);
+  CHECK(e.themeBg() == 0x1E1E2E);
+  CHECK(e.themeCursor() == 0xF5F5F5);
+  feed(e, "\x1b]10;?\x07");
+  feed(e, "\x1b]11;?\x07");
+  feed(e, "\x1b]12;?\x07");
+  auto resp = e.pollResponses();
+  std::string r(resp.begin(), resp.end());
+  CHECK(contains(r, "\x1b]10;rgb:f5f5/f5f5/f5f5\x07"));
+  CHECK(contains(r, "\x1b]11;rgb:1e1e/1e1e/2e2e\x07"));
+  CHECK(contains(r, "\x1b]12;rgb:f5f5/f5f5/f5f5\x07"));
+}
+
+MINI_TEST(osc_color_query_defaults_unchanged) {
+  Engine e(3, 10);
+  feed(e, "\x1b]10;?\x07");
+  feed(e, "\x1b]11;?\x07");
+  feed(e, "\x1b]12;?\x07");
+  auto resp = e.pollResponses();
+  std::string r(resp.begin(), resp.end());
+  // v0.2 defaults: fg white, bg/cursor black — 16-bit convention: ffff/0000.
+  CHECK(contains(r, "\x1b]10;rgb:ffff/ffff/ffff\x07"));
+  CHECK(contains(r, "\x1b]11;rgb:0000/0000/0000\x07"));
+  CHECK(contains(r, "\x1b]12;rgb:0000/0000/0000\x07"));
+}
+
 // ═══ Search ═══
 
 MINI_TEST(search_finds_screen_text) {

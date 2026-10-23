@@ -329,6 +329,29 @@ class NativeVtCore(
         return nativeActiveSearchHit(handle)
     }
 
+    // ─── v0.2: theme colors (OSC 4/10/11/12 responses) ──────────────────
+    /** Host theme colors → OSC 4/10/11/12 "?" responses. Defaults keep the
+     *  v0.2 placeholder answers (fg white / bg+cursor black). */
+    fun setThemeColors(fg: Int, bg: Int, cursor: Int) {
+        checkHandle()
+        nativeSetThemeColors(handle, fg, bg, cursor)
+    }
+
+    fun themeFg(): Int {
+        checkHandle()
+        return nativeThemeFg(handle)
+    }
+
+    fun themeBg(): Int {
+        checkHandle()
+        return nativeThemeBg(handle)
+    }
+
+    fun themeCursor(): Int {
+        checkHandle()
+        return nativeThemeCursor(handle)
+    }
+
     // ─── v0.2: selection (touch copy/paste) ─────────────────────────────
 
     fun beginSelection(globalRow: Long, col: Int) {
@@ -547,6 +570,10 @@ class NativeVtCore(
     private external fun nativeSetActiveSearchHit(handle: Long, index: Int)
     private external fun nativeActiveSearchHit(handle: Long): Int
     private external fun nativeSearchHitCount(handle: Long): Int
+    private external fun nativeSetThemeColors(handle: Long, fg: Int, bg: Int, cursor: Int)
+    private external fun nativeThemeFg(handle: Long): Int
+    private external fun nativeThemeBg(handle: Long): Int
+    private external fun nativeThemeCursor(handle: Long): Int
     private external fun nativeBeginSelection(handle: Long, globalRow: Long, col: Int)
     private external fun nativeExtendSelection(handle: Long, globalRow: Long, col: Int)
     private external fun nativeClearSelection(handle: Long)

@@ -161,7 +161,7 @@ what a production Android terminal needs):
 | `vt_mouse` | Mouse reporting: X10 / normal / button / any-event tracking × X11 / UTF-8 / SGR / urxvt encodings, byte-exact |
 | `vt_lines` / `vt_search` / `vt_reflow` | Logical line assembly over wrapped rows; Ctrl+F search (cross-wrap, case-folded, whole-word) over screen + scrollback; **resize reflow — content survives rotation / split-screen / foldables** |
 | `vt_session` | Binary session persistence (CRC-guarded, strict validation) — terminal state survives Android process death |
-| engine | OSC 8 hyperlinks (sparse spans, bounded table), DECRQM, DECSED/DECSEL/DECSCA protection, DECERA/DECSERA/DECCRA/DECFRA rectangles, XTPUSHSGR stack, focus reporting (1004), alternate scroll (1007), sync output (2026), OSC 4/10/11/12 color queries, touch selection (word/line, global rows) |
+| engine | OSC 8 hyperlinks (sparse spans, bounded table), DECRQM, DECSED/DECSEL/DECSCA protection, DECERA/DECSERA/DECCRA/DECFRA rectangles, XTPUSHSGR stack, focus reporting (1004), alternate scroll (1007), sync output (2026), OSC 4/10/11/12 color queries (host-theme via setThemeColors, xterm 16-bit rgb: convention), touch selection (word/line, global rows) |
 | JNI / Kotlin | All of the above exposed through one-call flat-array snapshots + mode-aware input encoders |
 
 370 host tests (v0.1 parity + 241 new), fuzz clean, ASAN/UBSAN clean.

@@ -228,6 +228,16 @@ class Engine {
   // Number of links currently reachable from screen/scrollback spans.
   int activeLinkCount() const;
 
+  // ─── theme colors (OSC 4/10/11/12 "?" responses) ───
+  // Host-applied palette head colors. The SET side of these OSCs stays
+  // theme-side (headless engine); these values answer the "?" queries so
+  // probing apps (nvim, tmux) see the real UI palette. Defaults keep the
+  // v0.2 placeholder answers: fg white, bg+cursor black.
+  void setThemeColors(uint32_t fg, uint32_t bg, uint32_t cursor);
+  uint32_t themeFg() const;
+  uint32_t themeBg() const;
+  uint32_t themeCursor() const;
+
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
