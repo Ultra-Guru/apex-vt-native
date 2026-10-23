@@ -1,10 +1,10 @@
 <div align="center">
 
-# apex-vt-native
+# apex-native-vt
 
 **C++17 zero-allocation VT/ANSI terminal emulation core + JNI bridge for Android**
 
-[![native CI](https://github.com/AceGuru-mjh/apex-vt-native/actions/workflows/native.yml/badge.svg?branch=main)](https://github.com/AceGuru-mjh/apex-vt-native/actions/workflows/native.yml)
+[![native CI](https://github.com/Ultra-Guru/apex-native-vt/actions/workflows/native.yml/badge.svg?branch=main)](https://github.com/Ultra-Guru/apex-native-vt/actions/workflows/native.yml)
 <img src="https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white" alt="C++17"/>
 <img src="https://img.shields.io/badge/ABI-arm64__v8a·armeabi--v7a·x86__64-3DDC84?logo=android&logoColor=white" alt="ABIs"/>
 <img src="img.shields.io/badge/deps-0-informational" alt="zero dependencies"/>
@@ -17,7 +17,7 @@
 ## What is this
 
 The native hot-path VT engine for
-[Android-Guru-Agent](https://github.com/AceGuru-mjh/Android-Guru-Agent).
+[Android-Guru-Agent](https://github.com/Ultra-Guru/Android-Guru-Agent).
 It replaces the pure-Kotlin `terminal-emulator` hot path
 (`Utf8Decoder → VtParser → TerminalCore → ScreenBuffer`) with a C++17 core
 embedded via JNI, keeping a **100% behavioral port** of the Kotlin semantics
@@ -37,7 +37,7 @@ PTY bytes ──► feed(bytes) ─────────────► flat 
               screen update, one JNI call)             ids (SoA)
 ```
 
-| Workload | Kotlin engine (est.) | apex-vt-native (measured, x86) |
+| Workload | Kotlin engine (est.) | apex-native-vt (measured, x86) |
 |---|---|---|
 | feed throughput (pure lines) | ~5–20 MiB/s + GC | **~156 MiB/s** |
 | feed throughput (mixed: SGR/CJK/redraw) | — | **~97 MiB/s** |

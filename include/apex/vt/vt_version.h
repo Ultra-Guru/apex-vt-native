@@ -1,4 +1,4 @@
-// apex-vt-native — C++17 zero-allocation VT/ANSI terminal emulation core.
+// apex-native-vt — C++17 zero-allocation VT/ANSI terminal emulation core.
 //
 // Version macros — single source of truth for the library ABI/feature version.
 #pragma once

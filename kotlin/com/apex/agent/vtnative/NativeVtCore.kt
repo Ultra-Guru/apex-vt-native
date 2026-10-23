@@ -3,7 +3,7 @@
 package com.apex.agent.vtnative
 
 // ═══════════════════════════════════════════════════════════════════════════
-// NativeVtCore — JNI wrapper over libvt_native.so (apex-vt-native engine).
+// NativeVtCore — JNI wrapper over libvt_native.so (apex-native-vt engine).
 //
 // REFERENCE IMPLEMENTATION — this file is vendored into the Android-Guru-Agent
 // `:terminal-native` Gradle module, where the types below resolve:

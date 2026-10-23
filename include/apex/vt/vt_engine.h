@@ -1,4 +1,4 @@
-// apex-vt-native — public C++ API.
+// apex-native-vt — public C++ API.
 //
 // A C++17, dependency-free, zero-allocation-hot-path VT/ANSI terminal
 // emulation core. Semantic port of the Kotlin TerminalCore 2.0 engine
